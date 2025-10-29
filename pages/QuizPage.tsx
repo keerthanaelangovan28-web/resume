@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Question } from '../types';
-import { getQuizQuestions } from '../services/geminiService';
+import { getQuizQuestions, evaluateQuizAnswers } from '../services/geminiService';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const TIMER_SECONDS = 60;
@@ -12,10 +11,11 @@ const QuizPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [currentAnswer, setCurrentAnswer] = useState('');
   const [answers, setAnswers] = useState<string[]>([]);
   const [timer, setTimer] = useState(TIMER_SECONDS);
   const [startTime, setStartTime] = useState(Date.now());
+  const [isEvaluating, setIsEvaluating] = useState(false);
   const navigate = useNavigate();
 
   const fetchQuestions = useCallback(async () => {
@@ -43,7 +43,7 @@ const QuizPage = () => {
   }, []);
 
   useEffect(() => {
-    if (loading || questions.length === 0) return;
+    if (loading || questions.length === 0 || isEvaluating) return;
     const interval = setInterval(() => {
       setTimer((prev) => {
         if (prev <= 1) {
@@ -55,52 +55,52 @@ const QuizPage = () => {
     }, 1000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, questions.length, currentQuestionIndex]);
+  }, [loading, questions.length, currentQuestionIndex, isEvaluating]);
 
-  const handleNextQuestion = () => {
-    const newAnswers = [...answers, selectedAnswer || ''];
+  const handleNextQuestion = async () => {
+    const newAnswers = [...answers, currentAnswer];
     setAnswers(newAnswers);
     
     if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
-      setSelectedAnswer(null);
+      setCurrentAnswer('');
       setTimer(TIMER_SECONDS);
     } else {
-      // Quiz finished
+      // Quiz finished, start evaluation
+      setIsEvaluating(true);
       const endTime = Date.now();
       const timeTaken = Math.round((endTime - startTime) / 1000);
-      let correctAnswers = 0;
-      questions.forEach((q, i) => {
-        if (q.correctAnswer === newAnswers[i]) {
-          correctAnswers++;
-        }
-      });
-      const score = correctAnswers * 10 - Math.round(timeTaken / questions.length); // Example scoring
       
-      const resumeData = JSON.parse(localStorage.getItem('resumeData') || '{}');
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      try {
+        const score = await evaluateQuizAnswers(questions, newAnswers);
+        
+        const resumeData = JSON.parse(localStorage.getItem('resumeData') || '{}');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
 
-      const result = {
-        userId: user.id || 'unknown',
-        userName: user.email || 'unknown',
-        score: Math.max(0, score),
-        timeTaken,
-        correctAnswers,
-        totalQuestions: questions.length,
-        skills: resumeData.skills || []
-      };
+        const result = {
+          userId: user.id || 'unknown',
+          userName: user.email || 'unknown',
+          score,
+          timeTaken,
+          totalQuestions: questions.length,
+          skills: resumeData.skills || []
+        };
 
-      // Store results in localStorage (simulating DB)
-      const allResults = JSON.parse(localStorage.getItem('allResults') || '[]');
-      allResults.push(result);
-      localStorage.setItem('allResults', JSON.stringify(allResults));
-      localStorage.setItem('latestResult', JSON.stringify(result));
-      
-      navigate('/result');
+        const allResults = JSON.parse(localStorage.getItem('allResults') || '[]');
+        allResults.push(result);
+        localStorage.setItem('allResults', JSON.stringify(allResults));
+        localStorage.setItem('latestResult', JSON.stringify(result));
+        
+        navigate('/result');
+      } catch(err) {
+        setError('Failed to evaluate answers. Please try again later.');
+        setIsEvaluating(false);
+      }
     }
   };
 
   if (loading) return <div className="text-center text-accent text-xl">Generating your personalized quiz...</div>;
+  if (isEvaluating) return <div className="text-center text-accent text-xl">AI is evaluating your answers...</div>;
   if (error) return <div className="text-center text-red-500 text-xl">{error}</div>;
   if (questions.length === 0) return <div className="text-center text-xl">No questions available.</div>;
 
@@ -133,33 +133,32 @@ const QuizPage = () => {
             exit={{ opacity: 0, x: -50 }}
             transition={{ duration: 0.3 }}
           >
-            <h2 className="text-2xl md:text-3xl font-bold mb-8 min-h-[100px] text-white">{currentQuestion.question}</h2>
+            <h2 
+              onCopy={(e) => e.preventDefault()}
+              className="text-2xl md:text-3xl font-bold mb-8 min-h-[100px] text-white"
+              style={{ userSelect: 'none' }}
+            >
+                {currentQuestion.question}
+            </h2>
             <div className="space-y-4">
-              {currentQuestion.options.map((option, index) => (
-                <motion.button
-                  key={index}
-                  onClick={() => setSelectedAnswer(option)}
-                  className={`w-full text-left p-4 rounded-lg border-2 transition-colors text-lg ${
-                    selectedAnswer === option
-                      ? 'bg-secondary border-accent'
-                      : 'bg-base-200 border-secondary hover:border-sky-700'
-                  }`}
-                  whileHover={{ scale: 1.02 }}
-                >
-                  {option}
-                </motion.button>
-              ))}
+              <textarea
+                value={currentAnswer}
+                onChange={(e) => setCurrentAnswer(e.target.value)}
+                onPaste={(e) => e.preventDefault()}
+                className="w-full h-48 p-4 bg-base-200 border-2 border-secondary rounded-lg focus:outline-none focus:ring-2 focus:ring-accent resize-none text-white"
+                placeholder="Type your conceptual answer here..."
+              />
             </div>
           </motion.div>
         </AnimatePresence>
 
         <motion.button
           onClick={handleNextQuestion}
-          disabled={!selectedAnswer}
+          disabled={!currentAnswer.trim()}
           className="w-full mt-8 py-3 bg-primary text-white font-bold rounded-lg disabled:bg-gray-600 disabled:cursor-not-allowed"
-          whileHover={selectedAnswer ? { scale: 1.02 } : {}}
+          whileHover={currentAnswer.trim() ? { scale: 1.02 } : {}}
         >
-          {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish Quiz'}
+          {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish & Evaluate'}
         </motion.button>
       </div>
     </div>

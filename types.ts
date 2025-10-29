@@ -1,4 +1,3 @@
-
 export interface User {
   id: string;
   email: string;
@@ -19,8 +18,6 @@ export interface ResumeData {
 
 export interface Question {
   question: string;
-  options: string[];
-  correctAnswer: string;
 }
 
 export interface QuizResult {
@@ -28,7 +25,6 @@ export interface QuizResult {
   userName: string;
   score: number;
   timeTaken: number;
-  correctAnswers: number;
   totalQuestions: number;
   skills: string[];
 }
