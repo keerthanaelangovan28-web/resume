@@ -1,0 +1,5 @@
+{
+  "name": "Adaptive AI Resume Ranker",
+  "description": "An AI-powered web application to rank resumes by analyzing skills and conducting dynamically generated quizzes. Features user authentication, resume analysis, a skill-based quiz, and an admin panel for viewing results.",
+  "requestFramePermissions": []
+}
